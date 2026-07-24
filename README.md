@@ -43,6 +43,18 @@ Either script publishes the project and produces
 plugin assemblies, which is the format the device's admin UI accepts for
 upload.
 
+## Developing without a device
+
+Open `DMXCore100.ExamplePlugin.slnx` in Visual Studio:
+
+- **DevHost** (`tools/`) — set as startup project and press F5 for an
+  interactive console harness built on
+  [`DMXCore.PluginSdk.Testing`](https://www.nuget.org/packages/DMXCore.PluginSdk.Testing):
+  simulate MQTT messages, cue events, and settings changes from the keyboard
+  and watch every action the plugin takes, no device needed.
+- **Tests** (`tests/`) — MSTest unit tests against `TestPluginHost`, showing
+  how to assert on fired triggers, published messages, and persisted state.
+
 ## How plugins behave on the device
 
 - Plugins run **in-process and fully trusted**; only device administrators can
