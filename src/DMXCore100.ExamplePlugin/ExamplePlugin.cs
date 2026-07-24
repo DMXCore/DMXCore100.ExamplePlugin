@@ -69,6 +69,15 @@ public class ExamplePlugin : IPlugin
                 Description = "Example of a masked setting (not used by this plugin)",
             },
         ],
+        Triggers =
+        [
+            new()
+            {
+                Code = "EXAMPLE",
+                Label = "Command received",
+                Description = "Fired when a message arrives on the command topic (the code is configurable via the Trigger code setting)",
+            },
+        ],
     };
 
     public async Task InitializeAsync(IPluginHost host, CancellationToken cancellationToken)
