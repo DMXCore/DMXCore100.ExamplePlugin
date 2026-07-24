@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ExcludeAssets="runtime": the DMX Core 100 host provides the SDK (and
+         its dependencies) at runtime and always resolves them to its own
+         copies, so they must not be shipped inside the .dmxplugin. -->
+    <PackageReference Include="DMXCore.PluginSdk" Version="0.*" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="manifest.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

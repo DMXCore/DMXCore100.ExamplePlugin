@@ -1,0 +1,8 @@
+{
+  "id": "example-plugin",
+  "name": "DMX Core 100 Example Plugin",
+  "version": "1.0.0",
+  "entryAssembly": "DMXCore100.ExamplePlugin.dll",
+  "minSdkVersion": "0.1",
+  "author": "DMX Core"
+}
