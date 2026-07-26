@@ -6,19 +6,22 @@ namespace DMXCore100.ExamplePlugin;
 /// <summary>
 /// Reference plugin that exercises the full DMXCore.PluginSdk surface:
 /// declared settings, logging, periodic scheduling, MQTT publish/subscribe,
-/// firing input triggers, cue playback events, and the persistent state blob.
+/// firing input triggers, cue playback events, the persistent state blob,
+/// and the v0.2 additions — device identity, the entity catalog (observe
+/// device state, execute commands), broker connection lifecycle, and QoS.
 /// </summary>
 public class ExamplePlugin : IPlugin
 {
     private IPluginHost host = null!;
     private readonly List<IDisposable> subscriptions = [];
     private int commandCount;
+    private string? lastCueCode;
 
     public PluginInfo Info { get; } = new()
     {
         Id = "example-plugin",
         Name = "DMX Core 100 Example Plugin",
-        Version = "1.0.0",
+        Version = "1.1.0",
         Description = "Reference plugin demonstrating the DMXCore.PluginSdk surface.",
         Settings =
         [
@@ -94,6 +97,18 @@ public class ExamplePlugin : IPlugin
 
         host.Logger.LogInformation("Example plugin starting; {Count} commands handled so far", this.commandCount);
 
+        // Device identity (SDK v0.2): stable serial for external ids, the
+        // branded product name (whitelabel-correct), and software version.
+        var device = host.DeviceInfo;
+        host.Logger.LogInformation("Running on {Product} '{DeviceName}' (serial {Serial}, {Version})",
+            device.ProductName, device.DeviceName, device.Serial, device.SoftwareVersion);
+
+        // The entity catalog (SDK v0.2): everything the device exposes to
+        // integrations - presets, cues, schedules, zones, Control Values,
+        // and system state - addressable by stable code.
+        var catalog = await host.Entities.GetCatalogAsync(cancellationToken);
+        host.Logger.LogInformation("Device exposes {Count} integration entities", catalog.Count);
+
         // Subscribe to a command topic. Handlers are async, run serially per
         // plugin, and a thrown exception is logged by the host without
         // killing the subscription.
@@ -102,6 +117,18 @@ public class ExamplePlugin : IPlugin
 
         // React to cue playback anywhere in the system (top-level cues only).
         this.subscriptions.Add(host.Playback.OnCueStarted(this.HandleCueStarted));
+
+        // Entity state feed (SDK v0.2): coalesced by the host (an entity
+        // settles at its final value; fade-rate intermediates are dropped).
+        // This example mirrors the master dimmer onto an MQTT topic.
+        this.subscriptions.Add(host.Entities.OnStateChanged(this.HandleEntityState));
+
+        // Broker lifecycle (SDK v0.2): the handler always sees the current
+        // state first, then every transition. Topic subscriptions re-apply
+        // automatically on reconnect but published retained state does not -
+        // republish it here (Home Assistant discovery configs would follow
+        // the same pattern).
+        this.subscriptions.Add(host.Mqtt.OnConnectionChanged(this.HandleConnectionChanged));
 
         // Settings can change while the plugin runs; re-read them on change.
         this.subscriptions.Add(host.Settings.OnChanged(this.HandleSettingsChanged));
@@ -128,17 +155,37 @@ public class ExamplePlugin : IPlugin
         this.commandCount++;
         this.host.Logger.LogInformation("Command #{Count} received on {Topic}: {Payload}", this.commandCount, message.Topic, message.Payload);
 
-        // Fire a trigger and let the venue decide what it does in the normal
-        // trigger configuration UI - preferable to hardcoding a cue here.
-        string triggerCode = this.host.Settings.GetString("trigger-code")!;
-        await this.host.Triggers.FireAsync(triggerCode, cancellationToken);
+        // "dim <0..1>" drives the master dimmer through the entity catalog
+        // (SDK v0.2) - the same pipeline every other control surface uses.
+        string[] parts = message.Payload.Split(' ', 2);
+        if (string.Equals(parts[0], "dim", StringComparison.OrdinalIgnoreCase) &&
+            parts.Length == 2 &&
+            double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double level))
+        {
+            await this.host.Entities.ExecuteAsync("system.masterdimmer", PluginEntityCommand.SetLevel(level), cancellationToken);
+        }
+        else
+        {
+            // Otherwise fire a trigger and let the venue decide what it does
+            // in the normal trigger configuration UI - preferable to
+            // hardcoding a cue here.
+            string triggerCode = this.host.Settings.GetString("trigger-code")!;
+            await this.host.Triggers.FireAsync(triggerCode, cancellationToken);
+        }
 
         await this.host.SetStateJsonAsync(this.commandCount.ToString(), cancellationToken);
     }
 
     private async Task HandleCueStarted(CuePlaybackEvent playbackEvent, CancellationToken cancellationToken)
     {
-        if (this.host.Settings.GetBoolean("announce-cues") != true)
+        this.lastCueCode = playbackEvent.CueCode;
+
+        await PublishLastCue(cancellationToken);
+    }
+
+    private async Task PublishLastCue(CancellationToken cancellationToken)
+    {
+        if (this.lastCueCode == null || this.host.Settings.GetBoolean("announce-cues") != true)
         {
             return;
         }
@@ -147,8 +194,38 @@ public class ExamplePlugin : IPlugin
 
         // retain: true makes the broker replay the latest value to new
         // subscribers - the same mechanism Home Assistant MQTT Discovery
-        // relies on for config and state topics.
-        await this.host.Mqtt.PublishAsync($"{statusTopic}/last-cue", playbackEvent.CueCode, retain: true, cancellationToken);
+        // relies on for config and state topics. AtLeastOnce because a
+        // retained value that silently goes missing is worse than a
+        // duplicate.
+        await this.host.Mqtt.PublishAsync($"{statusTopic}/last-cue", this.lastCueCode, retain: true, MqttQos.AtLeastOnce, cancellationToken);
+    }
+
+    private async Task HandleEntityState(PluginEntityState state, CancellationToken cancellationToken)
+    {
+        // Mirror one entity as a taste of the state feed; a real integration
+        // would map the whole catalog (see the platform integration plan).
+        if (!string.Equals(state.Code, "system.masterdimmer", StringComparison.OrdinalIgnoreCase) || !state.Level.HasValue)
+        {
+            return;
+        }
+
+        string statusTopic = this.host.Settings.GetString("status-topic")!;
+        await this.host.Mqtt.PublishAsync($"{statusTopic}/master-dimmer",
+            state.Level.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+            retain: true, MqttQos.AtLeastOnce, cancellationToken);
+    }
+
+    private async Task HandleConnectionChanged(bool connected, CancellationToken cancellationToken)
+    {
+        this.host.Logger.LogInformation("Broker connection: {State}", connected ? "up" : "down");
+
+        if (connected)
+        {
+            // Republish retained state after a reconnect; the broker may have
+            // restarted and lost it (subscriptions are re-applied by the
+            // host, published values are this plugin's job)
+            await PublishLastCue(cancellationToken);
+        }
     }
 
     private Task HandleSettingsChanged(CancellationToken cancellationToken)

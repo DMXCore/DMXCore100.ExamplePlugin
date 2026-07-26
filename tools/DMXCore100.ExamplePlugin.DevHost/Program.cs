@@ -1,3 +1,4 @@
+using DMXCore.PluginSdk;
 using DMXCore.PluginSdk.Testing;
 using DMXCore100.ExamplePlugin;
 
@@ -8,6 +9,12 @@ using DMXCore100.ExamplePlugin;
 
 var plugin = new ExamplePlugin();
 var host = new TestPluginHost(plugin.Info);
+
+// Seed a small entity catalog so the plugin's catalog readout has content
+// (a real device populates this from its presets/cues/zones/etc.)
+host.EntityCatalog.Add(new PluginEntity { Code = "system.masterdimmer", Name = "Master Dimmer", Kind = PluginEntityKind.Level });
+host.EntityCatalog.Add(new PluginEntity { Code = "preset.PARTY", Name = "Party Mode", Kind = PluginEntityKind.Scene });
+host.EntityCatalog.Add(new PluginEntity { Code = "cv.VOL1", Name = "Bar Volume", Kind = PluginEntityKind.Level });
 
 Console.WriteLine($"=== {plugin.Info.Name} {plugin.Info.Version} dev host ===");
 Console.WriteLine();
@@ -63,10 +70,24 @@ while (running)
                 Console.WriteLine($"  state:      {host.StateJson ?? "(none)"}");
                 Console.WriteLine($"  published:  {host.PublishedMessages.Count}");
                 Console.WriteLine($"  triggers:   {string.Join(", ", host.FiredTriggers.Distinct())}");
+                Console.WriteLine($"  entity cmds: {string.Join(", ", host.ExecutedEntityCommands.Select(x => $"{x.EntityCode}:{x.Command.Type}"))}");
+                break;
+
+            case "i":
+                Console.WriteLine($"  device:        {host.DeviceInfo.ProductName} '{host.DeviceInfo.DeviceName}'");
+                Console.WriteLine($"  serial:        {host.DeviceInfo.Serial}");
+                Console.WriteLine($"  version:       {host.DeviceInfo.SoftwareVersion}");
+                Console.WriteLine($"  availability:  {host.Mqtt.DeviceAvailabilityTopic}");
+                Console.WriteLine($"                 {host.Mqtt.PluginAvailabilityTopic}");
+                break;
+
+            case "v":
+                double level = input.Length > 2 && double.TryParse(input[2..], out double parsed) ? parsed : 0.5;
+                await host.SimulateEntityStateAsync(new PluginEntityState { Code = "system.masterdimmer", Level = level });
                 break;
 
             case "x":
-                host.MqttConnected = !host.MqttConnected;
+                await host.SimulateMqttConnectionChangedAsync(!host.MqttConnected);
                 Console.WriteLine($"  MQTT connected: {host.MqttConnected}");
                 break;
 
@@ -99,11 +120,14 @@ static void PrintHelp()
     Console.WriteLine("""
         Commands:
           m [payload]     simulate MQTT message on the command topic
+                          (try: m dim 0.4 - drives the master dimmer entity)
           c [cueCode]     simulate cue started (default CUE1)
           e [cueCode]     simulate cue ended (default CUE1)
+          v [level]       simulate a master dimmer entity state change
           h               run the heartbeat (periodic task) once
           s <key> <value> change a setting and notify the plugin
-          x               toggle simulated MQTT connection state
+          x               toggle MQTT connection (delivers OnConnectionChanged)
+          i               show device info and availability topics
           d               dump recorded host state
           q               quit (runs plugin shutdown)
         """);

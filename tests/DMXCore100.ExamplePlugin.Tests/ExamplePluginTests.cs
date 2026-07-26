@@ -1,3 +1,4 @@
+using DMXCore.PluginSdk;
 using DMXCore.PluginSdk.Testing;
 using DMXCore100.ExamplePlugin;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -116,5 +117,71 @@ public class ExamplePluginTests
         await host.SimulateMqttMessageAsync("example-plugin/command", "go");
 
         Assert.AreEqual(0, host.FiredTriggers.Count);
+    }
+
+    [TestMethod]
+    public async Task DimCommand_ExecutesMasterDimmerEntity()
+    {
+        var (_, host) = await CreateInitializedAsync();
+
+        await host.SimulateMqttMessageAsync("example-plugin/command", "dim 0.4");
+
+        var (entityCode, command) = host.ExecutedEntityCommands.Single();
+        Assert.AreEqual("system.masterdimmer", entityCode);
+        Assert.AreEqual(PluginEntityCommandType.SetLevel, command.Type);
+        Assert.AreEqual(0.4, command.Level);
+
+        // A dim command routes to the entity, not the trigger
+        Assert.AreEqual(0, host.FiredTriggers.Count);
+    }
+
+    [TestMethod]
+    public async Task MasterDimmerState_IsMirroredRetained()
+    {
+        var (_, host) = await CreateInitializedAsync();
+
+        await host.SimulateEntityStateAsync(new PluginEntityState { Code = "system.masterdimmer", Level = 0.25 });
+
+        var message = host.PublishedMessages.Single();
+        Assert.AreEqual("example-plugin/status/master-dimmer", message.Topic);
+        Assert.AreEqual("0.25", message.Payload);
+        Assert.IsTrue(message.Retain);
+    }
+
+    [TestMethod]
+    public async Task OtherEntityState_IsIgnored()
+    {
+        var (_, host) = await CreateInitializedAsync();
+
+        await host.SimulateEntityStateAsync(new PluginEntityState { Code = "zone.BAR", Level = 0.5 });
+
+        Assert.AreEqual(0, host.PublishedMessages.Count);
+    }
+
+    [TestMethod]
+    public async Task Reconnect_RepublishesRetainedLastCue()
+    {
+        var (_, host) = await CreateInitializedAsync();
+        await host.SimulateCueStartedAsync("CUE9");
+        host.PublishedMessages.Clear();
+
+        await host.SimulateMqttConnectionChangedAsync(false);
+        await host.SimulateMqttConnectionChangedAsync(true);
+
+        var message = host.PublishedMessages.Single();
+        Assert.AreEqual("example-plugin/status/last-cue", message.Topic);
+        Assert.AreEqual("CUE9", message.Payload);
+        Assert.IsTrue(message.Retain);
+    }
+
+    [TestMethod]
+    public async Task Reconnect_WithNothingCached_PublishesNothing()
+    {
+        var (_, host) = await CreateInitializedAsync();
+
+        await host.SimulateMqttConnectionChangedAsync(false);
+        await host.SimulateMqttConnectionChangedAsync(true);
+
+        Assert.AreEqual(0, host.PublishedMessages.Count);
     }
 }
