@@ -39,7 +39,7 @@ Before writing any protocol code, know what you do **not** implement:
   button, mapping fields, and the fixture editor integration are all rendered
   by the Core from your descriptors — no UI code in the plugin.
 - `manifest.json` is generated at build time from `<PluginId>` and friends in
-  the project file (SDK contract 1.4) — don't keep a checked-in copy.
+  the project file (SDK contract 1.6) — don't keep a checked-in copy.
 
 ## The LIFX LAN protocol in five facts
 
@@ -75,7 +75,7 @@ discovery results (zone counts, targets) in a RAM cache — and
 restart until someone pressed Discover. Two host facilities exist so that
 never happens; use both from day one:
 
-- **Mapping fields** (SDK contract 1.4). Declare per-mapping fields on the
+- **Mapping fields** (SDK contract 1.6). Declare per-mapping fields on the
   descriptor — the Outputs page renders and stores them, and the values are
   in `PluginOutputMappingConfig.Options` on *every* call, including
   `GetChannelCount` right after boot:
