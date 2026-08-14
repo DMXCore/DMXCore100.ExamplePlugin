@@ -40,8 +40,31 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete latest --cleanup-tag --yes || true
-          gh release create latest artifacts/*.dmxplugin \
-            --title "Latest build" \
-            --prerelease \
-            --notes "Automatically packaged from \`${GITHUB_SHA}\`. The plugin SDK is 0.x preview; host-side plugin loading ships in a future DMX Core 100 release."
+          # Update in place instead of delete+recreate: a product build that
+          # downloads the "latest release" mid-update must never find no
+          # release at all.
+          if gh release view latest > /dev/null 2>&1; then
+            gh release upload latest artifacts/*.dmxplugin --clobber
+            gh release edit latest --draft=false --notes "Automatically packaged from \`${GITHUB_SHA}\`."
+            git tag -f latest "${GITHUB_SHA}"
+            git push -f origin latest
+          else
+            # A normal (non-prerelease) release: the DMX Core 100 product
+            # build downloads it with DownloadGitHubRelease's "latest
+            # release" mode, which skips prereleases.
+            gh release create latest artifacts/*.dmxplugin \n              --title "Latest build" \n              --notes "Automatically packaged from \`${GITHUB_SHA}\`."
+          fi
+
+      # Permanent, versioned release history: created once per manifest
+      # version (the first main build carrying a new version publishes it),
+      # never modified afterwards. The rolling 'latest' above remains what
+      # the DMX Core 100 product build bundles.
+      - name: Publish versioned release (once per version)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version "$(find src -name manifest.json | head -1)")
+          if ! gh release view "v${version}" > /dev/null 2>&1; then
+            gh release create "v${version}" artifacts/*.dmxplugin --title "v${version}" --notes "Version ${version}, packaged from commit ${GITHUB_SHA}."
+          fi
