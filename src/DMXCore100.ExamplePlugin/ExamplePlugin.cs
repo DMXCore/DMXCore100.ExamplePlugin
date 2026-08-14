@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DMXCore.PluginSdk;
 using Microsoft.Extensions.Logging;
 
@@ -7,8 +8,9 @@ namespace DMXCore100.ExamplePlugin;
 /// Reference plugin that exercises the full DMXCore.PluginSdk surface:
 /// declared settings, logging, periodic scheduling, MQTT publish/subscribe,
 /// firing input triggers, cue playback events, the persistent state blob,
-/// and the v0.2 additions — device identity, the entity catalog (observe
-/// device state, execute commands), broker connection lifecycle, and QoS.
+/// the v0.2 additions — device identity, the entity catalog (observe
+/// device state, execute commands), broker connection lifecycle, and QoS —
+/// and mDNS/DNS-SD discovery of network devices (SDK 1.1).
 /// </summary>
 public class ExamplePlugin : IPlugin
 {
@@ -21,7 +23,7 @@ public class ExamplePlugin : IPlugin
     {
         Id = "example-plugin",
         Name = "DMX Core 100 Example Plugin",
-        Version = "1.1.0",
+        Version = "1.2.0",
         Description = "Reference plugin demonstrating the DMXCore.PluginSdk surface.",
         Settings =
         [
@@ -70,6 +72,14 @@ public class ExamplePlugin : IPlugin
                 Type = PluginSettingType.String,
                 Secret = true,
                 Description = "Example of a masked setting (not used by this plugin)",
+            },
+            new()
+            {
+                Key = "mdns-service-type",
+                Label = "mDNS service type",
+                Type = PluginSettingType.String,
+                DefaultValue = "_osc._udp",
+                Description = "DNS-SD service type the 'discover' command browses for (the device itself advertises _osc._udp when OSC is enabled, so the default finds it)",
             },
         ],
         Triggers =
@@ -163,6 +173,27 @@ public class ExamplePlugin : IPlugin
             double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double level))
         {
             await this.host.Entities.ExecuteAsync("system.masterdimmer", PluginEntityCommand.SetLevel(level), cancellationToken);
+        }
+        else if (string.Equals(parts[0], "discover", StringComparison.OrdinalIgnoreCase))
+        {
+            // mDNS/DNS-SD discovery (SDK 1.1): find devices on the local
+            // network through the host's shared browser - no mDNS stack in
+            // the plugin. Refresh forces a fresh query, which fits an
+            // explicit user command; background polling should use
+            // GetServicesAsync instead (reads the live cache, no wait).
+            string serviceType = parts.Length == 2 ? parts[1] : this.host.Settings.GetString("mdns-service-type")!;
+            var services = await this.host.Mdns.RefreshServicesAsync(serviceType, cancellationToken);
+
+            this.host.Logger.LogInformation("Discovered {Count} {ServiceType} service(s)", services.Count, serviceType);
+
+            string statusTopic = this.host.Settings.GetString("status-topic")!;
+            string json = JsonSerializer.Serialize(services.Select(s => new
+            {
+                name = s.InstanceName,
+                address = s.Address,
+                port = s.Port,
+            }));
+            await this.host.Mqtt.PublishAsync($"{statusTopic}/mdns", json, retain: false, cancellationToken);
         }
         else
         {

@@ -4,10 +4,9 @@ A reference plugin for the [DMX Core 100](https://docs.dmxcore.com/dmx-core-100)
 lighting controller, demonstrating the full
 [`DMXCore.PluginSdk`](https://www.nuget.org/packages/DMXCore.PluginSdk) surface.
 
-> **Preview:** the plugin SDK contract is published, but host-side plugin
-> loading is shipping in a future DMX Core 100 release. This example compiles
-> and packs today; installing it on a device is not possible yet. The contract
-> is 0.x and may still change.
+The SDK contract is stable (1.x); new capabilities are added minor-version
+additively, and a plugin's `manifest.json` declares the lowest contract it
+needs via `minSdkVersion`.
 
 ## What it demonstrates
 
@@ -25,6 +24,7 @@ every part of the SDK, with comments on when you'd use each piece:
 | Cue playback events | `host.Playback.OnCueStarted` |
 | Periodic scheduling (non-overlapping) | `host.SchedulePeriodic` |
 | Persistent state across restarts | `host.GetStateJsonAsync` / `SetStateJsonAsync` |
+| mDNS/DNS-SD discovery of network devices (SDK 1.1) | `host.Mdns` — send `discover` (optionally `discover _hue._tcp`) on the command topic |
 
 ## Building
 
@@ -62,8 +62,8 @@ Open `DMXCore100.ExamplePlugin.slnx` in Visual Studio:
 - Handlers and callbacks are dispatched serially per plugin; an exception
   thrown from a handler is logged by the host and counted, but does not kill
   the subscription. Repeatedly faulting plugins are disabled.
-- Plugin changes are **applied on device restart**; there is no hot reload.
-  Settings edits, by contrast, apply live via `OnChanged`.
+- Plugin changes are applied by the **Reload** action on the device's Plugins
+  page (or a device restart). Settings edits apply live via `OnChanged`.
 - The `DMXCore.PluginSdk` assemblies are provided by the host at runtime — the
   project excludes them from the build output (`ExcludeAssets="runtime"`), so
   they must not be shipped inside the `.dmxplugin`.

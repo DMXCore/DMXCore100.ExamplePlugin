@@ -184,4 +184,46 @@ public class ExamplePluginTests
 
         Assert.AreEqual(0, host.PublishedMessages.Count);
     }
+
+    [TestMethod]
+    public async Task DiscoverCommand_RefreshesAndPublishesServices()
+    {
+        var (_, host) = await CreateInitializedAsync(h => h.MdnsServices["_osc._udp"] =
+        [
+            new MdnsServiceInfo
+            {
+                InstanceName = "DMX Core 100 - ABC123",
+                Hostname = "dmxcore.local",
+                Address = "192.168.1.20",
+                Port = 8000,
+                Properties = new Dictionary<string, string>(),
+            },
+        ]);
+
+        await host.SimulateMqttMessageAsync("example-plugin/command", "discover");
+
+        CollectionAssert.AreEqual(new[] { "_osc._udp" }, host.MdnsRefreshes);
+
+        var message = host.PublishedMessages.Single();
+        Assert.AreEqual("example-plugin/status/mdns", message.Topic);
+        StringAssert.Contains(message.Payload, "DMX Core 100 - ABC123");
+        StringAssert.Contains(message.Payload, "192.168.1.20");
+
+        // A discover command routes to discovery, not the trigger
+        Assert.AreEqual(0, host.FiredTriggers.Count);
+    }
+
+    [TestMethod]
+    public async Task DiscoverCommand_AcceptsExplicitServiceType()
+    {
+        var (_, host) = await CreateInitializedAsync();
+
+        await host.SimulateMqttMessageAsync("example-plugin/command", "discover _hue._tcp");
+
+        CollectionAssert.AreEqual(new[] { "_hue._tcp" }, host.MdnsRefreshes);
+
+        var message = host.PublishedMessages.Single();
+        Assert.AreEqual("example-plugin/status/mdns", message.Topic);
+        Assert.AreEqual("[]", message.Payload);
+    }
 }

@@ -16,6 +16,28 @@ host.EntityCatalog.Add(new PluginEntity { Code = "system.masterdimmer", Name = "
 host.EntityCatalog.Add(new PluginEntity { Code = "preset.PARTY", Name = "Party Mode", Kind = PluginEntityKind.Scene });
 host.EntityCatalog.Add(new PluginEntity { Code = "cv.VOL1", Name = "Bar Volume", Kind = PluginEntityKind.Level });
 
+// Seed discoverable mDNS services so `m discover` has something to find
+// (a real device serves these from its shared long-running mDNS browser)
+host.MdnsServices["_osc._udp"] =
+[
+    new MdnsServiceInfo
+    {
+        InstanceName = "DMX Core 100 - DEV123",
+        Hostname = "dmxcore.local",
+        Address = "192.168.1.20",
+        Port = 8000,
+        Properties = new Dictionary<string, string>(),
+    },
+    new MdnsServiceInfo
+    {
+        InstanceName = "Lighting Console",
+        Hostname = "console.local",
+        Address = "192.168.1.30",
+        Port = 9000,
+        Properties = new Dictionary<string, string> { ["version"] = "2.4" },
+    },
+];
+
 Console.WriteLine($"=== {plugin.Info.Name} {plugin.Info.Version} dev host ===");
 Console.WriteLine();
 
@@ -120,7 +142,8 @@ static void PrintHelp()
     Console.WriteLine("""
         Commands:
           m [payload]     simulate MQTT message on the command topic
-                          (try: m dim 0.4 - drives the master dimmer entity)
+                          (try: m dim 0.4 - drives the master dimmer entity;
+                           m discover - lists seeded mDNS services via host.Mdns)
           c [cueCode]     simulate cue started (default CUE1)
           e [cueCode]     simulate cue ended (default CUE1)
           v [level]       simulate a master dimmer entity state change
