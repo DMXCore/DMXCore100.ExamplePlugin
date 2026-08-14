@@ -3,11 +3,12 @@
 # restart needed (requires Core 2026.8+; older Cores stage it for the next
 # restart).
 #
-#   ./deploy-dev.ps1                                              # localhost, first user, no PIN
-#   ./deploy-dev.ps1 -Server http://192.168.1.50:8080 -UserId 1 -Pin 1234
+#   ./deploy-dev.ps1                                                  # localhost, Administrator, prompts for PIN
+#   ./deploy-dev.ps1 -Pin 1111                                        # no prompt
+#   ./deploy-dev.ps1 -Server http://192.168.1.50:8080 -User Manager -Pin 1234
 param(
     [string]$Server = 'http://localhost:8080',
-    [int]$UserId = 0,
+    [string]$User = 'Administrator',
     [string]$Pin = '',
     [string]$Password = ''
 )
@@ -21,18 +22,20 @@ if (-not $package)
     throw 'pack.ps1 produced no .dmxplugin package'
 }
 
-if ($UserId -eq 0)
+$users = Invoke-RestMethod "$Server/api/website/login-users"
+$account = $users.data | Where-Object { $_.name -eq $User } | Select-Object -First 1
+if (-not $account)
 {
-    $users = Invoke-RestMethod "$Server/api/website/login-users"
-    if (-not $users.data)
-    {
-        throw "No login users returned by $Server"
-    }
-
-    $UserId = $users.data[0].userId
+    throw "No user named '$User' on $Server (available: $(($users.data | ForEach-Object { $_.name }) -join ', '))"
 }
 
-$loginBody = @{ userId = $UserId; pin = $Pin; password = $Password } | ConvertTo-Json
+if (-not $Pin -and -not $Password)
+{
+    $entered = Read-Host "PIN for $User on $Server (Enter = 1111; use -Pin/-Password to skip this prompt)"
+    $Pin = if ($entered) { $entered } else { '1111' }
+}
+
+$loginBody = @{ userId = $account.userId; pin = $Pin; password = $Password } | ConvertTo-Json
 $login = Invoke-RestMethod -Method Post -Uri "$Server/api/website/login" -ContentType 'application/json' -Body $loginBody
 if (-not $login.success)
 {
