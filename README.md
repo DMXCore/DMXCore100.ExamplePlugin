@@ -26,6 +26,26 @@ every part of the SDK, with comments on when you'd use each piece:
 | Persistent state across restarts | `host.GetStateJsonAsync` / `SetStateJsonAsync` |
 | mDNS/DNS-SD discovery of network devices (SDK 1.1) | `host.Mdns` — send `discover` (optionally `discover _hue._tcp`) on the command topic |
 
+## Output plugins
+
+Plugins can also register **output protocols** (`host.Outputs`, SDK 1.2+):
+drivers that turn a slice of DMX channel data into commands for networked
+lighting devices — WiFi bulbs, relays, and similar. That side of the SDK is
+not exercised here; the reference for it is the
+[**Shelly plugin**](https://github.com/DMXCore/DMXCore100.ShellyPlugin), a
+complete, shipping output plugin in one small file:
+
+- registering output protocols with their own output type in the device UI
+- the per-device session model (latest-wins delivery, host-side rate
+  limiting, reconnect on failure)
+- destination discovery behind the UI's **Discover** button (SDK 1.3)
+- plugin-provided fixture profiles so the device patches like any fixture
+  (SDK 1.3)
+
+For a worked design of a hypothetical LIFX output plugin built on the same
+APIs — what it takes, which SDK pieces it uses, and protocol notes — see
+[docs/lifx-plugin-design.md](docs/lifx-plugin-design.md).
+
 ## Building
 
 Requires the .NET 10 SDK.
