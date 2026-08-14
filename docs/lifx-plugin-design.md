@@ -1,23 +1,29 @@
 # Designing a LIFX Output Plugin
 
 A worked design for a plugin that drives **LIFX** WiFi lights (bulbs, Tube,
-Beam, strips) from a DMX Core 100. Nothing here is built — this page exists
-to show what building an output plugin for a new device family takes, using
-LIFX as a realistic example. The
+Beam, strips) from a DMX Core 100. This page started as a paper design; the
+plugin has since been **built and shipped** as
+[DMXCore100.LIFX](https://github.com/DMXCore/DMXCore100.LIFX), so it now
+doubles as a case study: what the design got right, and what building it
+taught us. The
 [Shelly plugin](https://github.com/DMXCore/DMXCore100.ShellyPlugin) is the
-shipping reference for the same APIs; LIFX mostly differs in speaking its own
-UDP protocol instead of MQTT.
+other shipping reference for the same APIs; LIFX mostly differs in speaking
+its own UDP protocol instead of MQTT.
 
-## What the plugin would provide
+## What the plugin provides
 
 | Piece | SDK API | LIFX specifics |
 |---|---|---|
-| Output protocols | `host.Outputs.RegisterOutputProtocol` | `LIFX_COLOR` (single-zone bulbs), `LIFX_PIXEL` (Tube/Beam/strips) |
+| Output protocols | `host.Outputs.RegisterOutputProtocol` | `LIFX_COLOR` (RGB), `LIFX_COLOR_CT` (RGB+CT), `LIFX_PIXEL` (Tube/Beam/strips) |
 | Per-device delivery | `IPluginOutputSession` | UDP datagrams to the bulb's port 56700 |
 | Device discovery | `GetDestinationOptionsAsync` | LIFX's own UDP broadcast (not mDNS) |
-| Fixture profiles | `host.Outputs.RegisterFixtureProfile` | "LIFX Color" with RGB / RGB 16-bit / RGB+CT personalities |
+| Fixture profiles | `host.Outputs.RegisterFixtureProfile` | "LIFX / Color Bulb" with RGB and RGB+CT personalities |
 
-All of it fits in one source file, like the Shelly plugin.
+As built, the plugin splits into a handful of small files (packets, color
+math, discovery, one file per protocol) — still no host, no UI, no threading
+code. One lesson versus the original sketch: `GetChannelCount` is
+per-protocol, so RGB and RGB+CT became two protocols sharing one profile
+rather than one protocol with two personalities.
 
 ## What the host already does for you
 
@@ -30,8 +36,10 @@ Before writing any protocol code, know what you do **not** implement:
 - Failures self-heal: return `false` or throw, and the host reopens your
   session with backoff and retries with the newest values.
 - The SHELLY/LIFX-style output type, the protocol dropdown, the Discover
-  button, and the fixture editor integration are all rendered by the Core
-  from your descriptors — no UI code in the plugin.
+  button, mapping fields, and the fixture editor integration are all rendered
+  by the Core from your descriptors — no UI code in the plugin.
+- `manifest.json` is generated at build time from `<PluginId>` and friends in
+  the project file (SDK contract 1.4) — don't keep a checked-in copy.
 
 ## The LIFX LAN protocol in five facts
 
@@ -39,7 +47,9 @@ Before writing any protocol code, know what you do **not** implement:
    no cloud, no encryption on the LAN protocol.
 2. **Color model**: HSBK — four `uint16` fields (hue, saturation, brightness,
    kelvin). Scale 8-bit DMX values by ×257. `SetColor` (packet 102) sets the
-   whole device; set `res_required=0, ack_required=0` when streaming.
+   whole device; set `res_required=0, ack_required=0` when streaming. Kelvin
+   spans **1500–9000 K** across the product line (Candle and Neon go to
+   1500) — don't clamp tighter than the registry says.
 3. **Smoothing trick**: every set carries a `duration` (ms). Use roughly
    1.5× your send interval (e.g. 75 ms at 20 msg/s) so consecutive updates
    fade into each other and UDP jitter disappears.
@@ -51,6 +61,50 @@ Before writing any protocol code, know what you do **not** implement:
    family — and how many pixels — comes from the
    [LIFX product registry](https://github.com/LIFX/products); embed a
    snapshot in the plugin.
+
+One addressing gotcha the paper design missed: a frame whose 8-byte `target`
+is all zeros must set the header's `tagged` bit, or devices may drop it.
+Either resolve the real target (MAC) before opening a session, or set
+`tagged=1` on zero-target frames.
+
+## Persist what discovery learns
+
+The single biggest lesson from building this. The first implementation kept
+discovery results (zone counts, targets) in a RAM cache — and
+`GetChannelCount` for the pixel protocol returned 0 after every device
+restart until someone pressed Discover. Two host facilities exist so that
+never happens; use both from day one:
+
+- **Mapping fields** (SDK contract 1.4). Declare per-mapping fields on the
+  descriptor — the Outputs page renders and stores them, and the values are
+  in `PluginOutputMappingConfig.Options` on *every* call, including
+  `GetChannelCount` right after boot:
+
+  ```csharp
+  MappingFields =
+  [
+      new() { Key = "pixels", Label = "Pixels", Type = PluginSettingType.Integer },
+  ],
+  ```
+
+  Have discovery stamp the value by attaching it to the destination option —
+  picking a discovered device then fills the field automatically:
+
+  ```csharp
+  new PluginOutputDestinationOption(light.Ip, label)
+  {
+      Options = new Dictionary<string, string> { ["pixels"] = light.ZoneCount.ToString() },
+  }
+  ```
+
+- **Plugin state JSON** (`host.GetStateJsonAsync` / `SetStateJsonAsync`).
+  Persist the discovery snapshot itself (IP → target MAC, model, geometry)
+  and seed the cache from it in `InitializeAsync`. Cheap insurance for
+  everything that doesn't belong in a user-visible field.
+
+Session-open still deserves a self-heal: on a cache miss, force **one**
+discovery refresh, then fail with a message that tells the user exactly what
+to do ("Run Discover on the LIFX Pixel protocol").
 
 ## Sketch: protocols and sessions
 
@@ -66,11 +120,8 @@ host.Outputs.RegisterOutputProtocol(
         SuggestedProfileCode = "LIFX_COLOR",
         SuggestedPersonality = "RGB",
     },
-    new LifxColorProtocol(host));
+    new LifxColorProtocol(discovery));
 ```
-
-`GetChannelCount` returns 3 for RGB (or 4 for RGB+CT, 6 for 16-bit RGB —
-one protocol per layout, or personalities that agree with your profile).
 
 The session owns one `UdpClient` per mapped device:
 
@@ -87,9 +138,9 @@ public async Task<bool> SendAsync(ReadOnlyMemory<byte> ch, CancellationToken ct)
 }
 ```
 
-For `LIFX_PIXEL`, the session queries the zone/tile layout once on open, and
-`SendAsync` chunks the channel slice into `SetExtendedColorZones` or `Set64`
-packets depending on the product family.
+For `LIFX_PIXEL`, `SendAsync` chunks the channel slice into
+`SetExtendedColorZones` or `Set64` packets depending on the product family,
+using the geometry persisted on the mapping.
 
 Two conversion notes that matter in practice:
 
@@ -127,6 +178,17 @@ destination is the *IP address itself*, because the plugin talks straight to
 the device. A static DHCP lease per bulb is worth recommending in the
 plugin's docs.
 
+Two concurrency lessons from the shipping implementation:
+
+- **Share one in-flight scan.** Discover can be clicked from several browser
+  tabs (and the pixel and color protocols share one scanner). Keep a single
+  in-flight scan task that concurrent callers await; a caller that cancels
+  should abandon its *wait*, not the scan others are sharing. The LIFX
+  repo's `LifxDiscovery` + its tests are the reference.
+- **Broadcast per interface.** Send the probe to each NIC's directed
+  broadcast address, not just 255.255.255.255 — multi-homed devices miss
+  replies otherwise.
+
 ## Sketch: fixture profile
 
 ```csharp
@@ -147,17 +209,35 @@ With `SuggestedProfileCode`/`SuggestedPersonality` set on the protocol
 descriptors, the fixture editor's **Mapped Device** selector prefills the
 patch from an existing LIFX mapping — same flow as the Shelly plugin.
 
+## Design for tests from the first line
+
+The LIFX repo's test suite asserts actual packet bytes without a network,
+and the trick is two constructor-injected seams in the plugin:
+
+```csharp
+internal delegate Task<IReadOnlyList<LifxLight>> LifxDiscoverFunc(bool refresh, CancellationToken ct);
+internal delegate ValueTask LifxDatagramSender(IPEndPoint ep, ReadOnlyMemory<byte> packet, CancellationToken ct);
+```
+
+Production wires real sockets; tests pass a fake discoverer and a
+list-capturing sender, then drive the plugin through `TestPluginHost`
+(`SimulateOutputDeliveryAsync`) and assert on the captured datagrams. Add
+`InternalsVisibleTo` for the test project and the whole plugin is testable
+byte-for-byte.
+
 ## The step-by-step
 
 1. Copy the [Shelly plugin](https://github.com/DMXCore/DMXCore100.ShellyPlugin)
-   repo layout (csproj, `manifest.json`, pack scripts, CI).
+   repo layout (csproj with `<PluginId>`, pack scripts, CI) — the build
+   generates `manifest.json`, so there is none to check in.
 2. Write the LIFX packet builder (header + `SetColor`; ~100 lines — or
    reference an existing LIFX LAN library from NuGet, which ships inside your
    `.dmxplugin`).
 3. Implement `IPluginOutputProtocol`/`IPluginOutputSession` for single-zone
    bulbs; register protocol + profile. At this point a bulb patched as a
    fixture follows presets, cues, and effects.
-4. Add broadcast discovery behind `GetDestinationOptionsAsync`.
+4. Add broadcast discovery behind `GetDestinationOptionsAsync`, and persist
+   what it learns (mapping fields + state JSON — see above).
 5. Add the pixel protocol (multizone + matrix families, product registry
    snapshot for capabilities).
 6. Test against `TestPluginHost` (see this repo's `tests/`), then

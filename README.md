@@ -6,7 +6,9 @@ lighting controller, demonstrating the full
 
 The SDK contract is stable (1.x); new capabilities are added minor-version
 additively, and a plugin's `manifest.json` declares the lowest contract it
-needs via `minSdkVersion`.
+needs via `minSdkVersion`. The manifest is generated at build time from the
+project file (`<PluginId>`, `<Version>`, `<PluginMinSdkVersion>`) — see this
+repo's csproj; there is no checked-in `manifest.json` to keep in sync.
 
 ## What it demonstrates
 
@@ -59,9 +61,9 @@ Requires the .NET 10 SDK.
 ```
 
 Either script publishes the project and produces
-`artifacts/example-plugin.dmxplugin` — a zip containing `manifest.json` and the
-plugin assemblies, which is the format the device's admin UI accepts for
-upload.
+`artifacts/example-plugin.dmxplugin` — a zip containing the generated
+`manifest.json` and the plugin assemblies, which is the format the device's
+admin UI accepts for upload.
 
 ## Developing without a device
 

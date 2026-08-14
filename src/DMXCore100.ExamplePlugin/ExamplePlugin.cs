@@ -21,9 +21,12 @@ public class ExamplePlugin : IPlugin
 
     public PluginInfo Info { get; } = new()
     {
-        Id = "example-plugin",
-        Name = "DMX Core 100 Example Plugin",
-        Version = "1.2.0",
+        // Id/Name/Version come from the csproj (PluginId, PluginDisplayName,
+        // Version) via the SDK-generated PluginBuildInfo, always in sync with
+        // the generated manifest.json
+        Id = PluginBuildInfo.Id,
+        Name = PluginBuildInfo.Name,
+        Version = PluginBuildInfo.Version,
         Description = "Reference plugin demonstrating the DMXCore.PluginSdk surface.",
         Settings =
         [

@@ -3,16 +3,60 @@
 # restart needed (requires Core 2026.8+; older Cores stage it for the next
 # restart).
 #
-#   ./deploy-dev.ps1                                                  # localhost, Administrator, prompts for PIN
-#   ./deploy-dev.ps1 -Pin 1111                                        # no prompt
-#   ./deploy-dev.ps1 -Server http://192.168.1.50:8080 -User Manager -Pin 1234
+# Requires PowerShell 6.1+ (Invoke-RestMethod -Form). Invoke with pwsh:
+#   pwsh ./deploy-dev.ps1
+#   pwsh ./deploy-dev.ps1 -Server https://core.example:8080 -User Manager
+#   pwsh ./deploy-dev.ps1 -Server http://192.168.1.50:8080 -AllowInsecureHttp
+#Requires -Version 6.1
 param(
     [string]$Server = 'http://localhost:8080',
     [string]$User = 'Administrator',
-    [string]$Pin = '',
-    [string]$Password = ''
+    [switch]$AllowInsecureHttp
 )
 $ErrorActionPreference = 'Stop'
+
+function ConvertTo-PlainText([securestring]$Value)
+{
+    if ($null -eq $Value -or $Value.Length -eq 0)
+    {
+        return ''
+    }
+
+    return [System.Net.NetworkCredential]::new('', $Value).Password
+}
+
+function Assert-ServerUri([string]$ServerUri, [bool]$AllowInsecure)
+{
+    $uri = $null
+    if (-not [Uri]::TryCreate($ServerUri, [UriKind]::Absolute, [ref]$uri))
+    {
+        throw "Server '$ServerUri' is not a valid absolute URI."
+    }
+
+    if ($uri.Scheme -eq 'https')
+    {
+        return
+    }
+
+    if ($uri.Scheme -ne 'http')
+    {
+        throw "Server must be http or https (got '$($uri.Scheme)')."
+    }
+
+    if ($uri.IsLoopback)
+    {
+        return
+    }
+
+    if (-not $AllowInsecure)
+    {
+        throw "HTTP is only allowed for loopback hosts. Use HTTPS, or pass -AllowInsecureHttp to send credentials over HTTP to $ServerUri."
+    }
+
+    Write-Warning "Sending login credentials over unencrypted HTTP to $ServerUri"
+}
+
+Assert-ServerUri -ServerUri $Server -AllowInsecure:$AllowInsecureHttp
 
 & (Join-Path $PSScriptRoot 'pack.ps1')
 
@@ -29,13 +73,12 @@ if (-not $account)
     throw "No user named '$User' on $Server (available: $(($users.data | ForEach-Object { $_.name }) -join ', '))"
 }
 
-if (-not $Pin -and -not $Password)
-{
-    $entered = Read-Host "PIN for $User on $Server (Enter = 1111; use -Pin/-Password to skip this prompt)"
-    $Pin = if ($entered) { $entered } else { '1111' }
-}
+$pinSecure = Read-Host "PIN for $User on $Server" -AsSecureString
+$passwordSecure = Read-Host "Password for $User on $Server (empty if PIN-only)" -AsSecureString
+$pin = ConvertTo-PlainText $pinSecure
+$password = ConvertTo-PlainText $passwordSecure
 
-$loginBody = @{ userId = $account.userId; pin = $Pin; password = $Password } | ConvertTo-Json
+$loginBody = @{ userId = $account.userId; pin = $pin; password = $password } | ConvertTo-Json
 $login = Invoke-RestMethod -Method Post -Uri "$Server/api/website/login" -ContentType 'application/json' -Body $loginBody
 if (-not $login.success)
 {
