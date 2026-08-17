@@ -60,10 +60,30 @@ Requires the .NET 10 SDK.
 ./pack.ps1       # Windows
 ```
 
-Either script publishes the project and produces
-`artifacts/example-plugin.dmxplugin` — a zip containing the generated
-`manifest.json` and the plugin assemblies, which is the format the device's
-admin UI accepts for upload.
+Either script runs `dotnet pack`, which (through the SDK's pack targets)
+produces two things in `artifacts/`:
+
+- `DMXCore.Plugin.Example.<version>.nupkg` — the **plugin registry package**.
+  DMX Core 100 devices browse nuget.org for packages of type `DmxCorePlugin`
+  and install/update them directly, so pushing this to nuget.org is how a
+  plugin is released. Its only payload is `content/plugin.dmxplugin`, and its
+  `DMXCore.PluginSdk` dependency range (`[<minSdkVersion>, <next major>.0)`)
+  tells devices which versions they can load before downloading.
+- `example-plugin.dmxplugin` — the bare archive (generated `manifest.json` +
+  plugin assemblies) for manual upload on the device's Plugins page or via
+  `deploy-dev.ps1`.
+
+## Publishing your own plugin
+
+1. Set `<PackageId>` (your own prefix — `DMXCore.*` is reserved for
+   first-party plugins), `<Description>`, `<PackageProjectUrl>`,
+   `<PackageLicenseExpression>` and `<PackageReadmeFile>` in the csproj.
+2. `dotnet pack` and push the `.nupkg`:
+   `dotnet nuget push artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key <your key>`.
+   This repo's `.github/workflows/build.yml` does exactly that on every push
+   to `main` (`--skip-duplicate`, so bumping `<Version>` is what publishes).
+3. It appears on every device's Plugins → Browse page within minutes; devices
+   with it installed see the update.
 
 ## Developing without a device
 

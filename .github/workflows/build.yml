@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
   schedule:
-    # Weekly build so the floating DMXCore.PluginSdk 0.* reference surfaces
+    # Weekly build so the floating DMXCore.PluginSdk 1.* reference surfaces
     # breakage from new SDK releases even when this repo is idle.
     - cron: '15 6 * * 1'
 
@@ -30,7 +30,29 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: example-plugin
-          path: artifacts/*.dmxplugin
+          path: |
+            artifacts/*.dmxplugin
+            artifacts/*.nupkg
+
+      # Plugin registry: nuget.org is where DMX Core 100 devices browse,
+      # install and update plugins from, so pushing here IS the release.
+      # --skip-duplicate makes re-pushing an already published version a
+      # no-op, so bumping <Version> in the csproj is what publishes.
+      - name: Publish to nuget.org
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          pkg=$(ls artifacts/*.nupkg | head -1)
+          # A package pushed to nuget.org can never be deleted, so refuse a
+          # package that lacks the plugin payload (built with an SDK that
+          # predates registry packaging, or a broken pack).
+          if ! unzip -l "$pkg" | grep -q 'content/plugin.dmxplugin'; then
+            echo "::error::$pkg lacks content/plugin.dmxplugin - not a DmxCorePlugin package"
+            exit 1
+          fi
+          dotnet nuget push "$pkg" \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --skip-duplicate
 
       # Workflow artifacts expire; keep a permanent, anonymously downloadable
       # copy of the current build as a single rolling release. Recreated (not
@@ -52,7 +74,9 @@ jobs:
             # A normal (non-prerelease) release: the DMX Core 100 product
             # build downloads it with DownloadGitHubRelease's "latest
             # release" mode, which skips prereleases.
-            gh release create latest artifacts/*.dmxplugin \n              --title "Latest build" \n              --notes "Automatically packaged from \`${GITHUB_SHA}\`."
+            gh release create latest artifacts/*.dmxplugin \
+              --title "Latest build" \
+              --notes "Automatically packaged from \`${GITHUB_SHA}\`."
           fi
 
       # Permanent, versioned release history: created once per manifest

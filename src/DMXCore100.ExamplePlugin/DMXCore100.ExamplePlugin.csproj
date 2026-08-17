@@ -9,6 +9,16 @@
     <PluginDisplayName>DMX Core 100 Example Plugin</PluginDisplayName>
     <Version>1.2.1</Version>
     <Authors>DMX Core</Authors>
+
+    <!-- Plugin registry (nuget.org) package metadata. DMXCore.Plugin.* is the
+         reserved first-party prefix; the package is produced by `dotnet pack`
+         via the DMXCore.PluginSdk pack targets. -->
+    <PackageId>DMXCore.Plugin.Example</PackageId>
+    <Description>Example plugin for the DMX Core 100 lighting controller: a reference implementation exercising the full plugin SDK surface (MQTT, triggers, playback, mDNS discovery, entities, output actions) to start your own plugin from.</Description>
+    <PackageProjectUrl>https://github.com/DMXCore/DMXCore100.ExamplePlugin</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>example;reference</PackageTags>
     <!-- Floor: mDNS (SDK 1.1) is the newest API this plugin requires.
          Without this override the floor would default to the contract of the
          SDK assembly we compile against, which is newer than we need. -->
@@ -20,6 +30,10 @@
          its dependencies) at runtime and always resolves them to its own
          copies, so they must not be shipped inside the .dmxplugin. -->
     <PackageReference Include="DMXCore.PluginSdk" Version="1.*" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
 </Project>
