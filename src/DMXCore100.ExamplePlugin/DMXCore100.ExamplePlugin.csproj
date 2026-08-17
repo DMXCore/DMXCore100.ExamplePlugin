@@ -18,6 +18,9 @@
     <PackageProjectUrl>https://github.com/DMXCore/DMXCore100.ExamplePlugin</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Embedded icon (not iconUrl) is a nuget.org reserved-prefix review
+         criterion; icon.png is the same 128x128 logo the SDK packages ship. -->
+    <PackageIcon>icon.png</PackageIcon>
     <PackageTags>example;reference</PackageTags>
     <!-- Floor: mDNS (SDK 1.1) is the newest API this plugin requires.
          Without this override the floor would default to the contract of the
@@ -34,6 +37,7 @@
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="..\..\icon.png" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
 </Project>
