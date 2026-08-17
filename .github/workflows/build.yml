@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write  # OIDC token for nuget.org Trusted Publishing
 
 jobs:
   build:
@@ -38,20 +39,35 @@ jobs:
       # install and update plugins from, so pushing here IS the release.
       # --skip-duplicate makes re-pushing an already published version a
       # no-op, so bumping <Version> in the csproj is what publishes.
-      - name: Publish to nuget.org
+      # A package pushed to nuget.org can never be deleted, so refuse a
+      # package that lacks the plugin payload (built with an SDK that
+      # predates registry packaging, or a broken pack) BEFORE logging in.
+      - name: Verify plugin package
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           pkg=$(ls artifacts/*.nupkg | head -1)
-          # A package pushed to nuget.org can never be deleted, so refuse a
-          # package that lacks the plugin payload (built with an SDK that
-          # predates registry packaging, or a broken pack).
           if ! unzip -l "$pkg" | grep -q 'content/plugin.dmxplugin'; then
             echo "::error::$pkg lacks content/plugin.dmxplugin - not a DmxCorePlugin package"
             exit 1
           fi
-          dotnet nuget push "$pkg" \
+
+      # Keyless (Trusted Publishing): GitHub's OIDC token is exchanged for a
+      # one-hour nuget.org API key against the trusted-publishing policy
+      # registered on nuget.org for this repo + workflow file. NUGET_USER is
+      # the nuget.org profile name that owns the policy.
+      - name: NuGet login (OIDC)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Publish to nuget.org
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          dotnet nuget push artifacts/*.nupkg \
             --source https://api.nuget.org/v3/index.json \
-            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
             --skip-duplicate
 
       # Workflow artifacts expire; keep a permanent, anonymously downloadable
