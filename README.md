@@ -91,7 +91,7 @@ produces two things in `artifacts/`:
      - uses: NuGet/login@v1
        id: login
        with:
-         user: ${{ secrets.NUGET_USER }}   # your nuget.org profile name
+         user: your-nuget-profile-name
      - run: dotnet nuget push artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
    ```
 
