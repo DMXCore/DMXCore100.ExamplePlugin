@@ -80,8 +80,24 @@ produces two things in `artifacts/`:
    `<PackageLicenseExpression>` and `<PackageReadmeFile>` in the csproj.
 2. `dotnet pack` and push the `.nupkg`:
    `dotnet nuget push artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key <your key>`.
-   This repo's `.github/workflows/build.yml` does exactly that on every push
-   to `main` (`--skip-duplicate`, so bumping `<Version>` is what publishes).
+   From GitHub Actions, prefer keyless [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing)
+   (register the repo + workflow file on nuget.org once, then):
+
+   ```yaml
+   permissions:
+     id-token: write
+   steps:
+     - run: ./pack.sh
+     - uses: NuGet/login@v1
+       id: login
+       with:
+         user: ${{ secrets.NUGET_USER }}   # your nuget.org profile name
+     - run: dotnet nuget push artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
+   ```
+
+   With `--skip-duplicate`, re-running is harmless — bumping `<Version>` is
+   what publishes a new release. (This example plugin itself is not published
+   to nuget.org.)
 3. It appears on every device's Plugins → Browse page within minutes; devices
    with it installed see the update.
 
