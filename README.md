@@ -98,8 +98,26 @@ produces two things in `artifacts/`:
    With `--skip-duplicate`, re-running is harmless — bumping `<Version>` is
    what publishes a new release. (This example plugin itself is not published
    to nuget.org.)
-3. It appears on every device's Plugins → Browse page within minutes; devices
-   with it installed see the update.
+3. It appears on every device's **Plugins → Browse** page within minutes —
+   there is no registration or approval step; devices search nuget.org for
+   packages of type `DmxCorePlugin`. Users install it with one click, and
+   devices that already have it installed see the new version (and apply it
+   automatically if their update policy says so).
+
+### Installing your plugin on a device
+
+- **From nuget.org (public plugins):** on the device's web UI go to
+  **Control & Integrations → Plugins → Browse**, find your plugin, press
+  **Install**. Older versions can be picked from the version dropdown.
+- **From a private feed:** publish to any NuGet V3 feed (Azure Artifacts,
+  BaGet, a local server, ...) and add its service-index URL under
+  **Browse → Registry settings → Feeds** on the device (credentials go in the
+  URL: `https://user:token@host/...`). The plugin then shows up in Browse
+  like any other.
+- **Without any feed:** upload the `.dmxplugin` from `artifacts/` on the
+  Plugins page (or run `deploy-dev.ps1`). Uploaded packages built with SDK
+  1.7.4+ are still tracked for updates against the registry by their
+  package id.
 
 ## Developing without a device
 
