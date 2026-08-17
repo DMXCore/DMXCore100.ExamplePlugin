@@ -34,7 +34,7 @@ Plugins can also register **output protocols** (`host.Outputs`, SDK 1.2+):
 drivers that turn a slice of DMX channel data into commands for networked
 lighting devices — WiFi bulbs, relays, and similar. That side of the SDK is
 not exercised here; the reference for it is the
-[**Shelly plugin**](https://github.com/DMXCore/DMXCore100.ShellyPlugin), a
+[**Shelly plugin**](https://github.com/DMXCore/DMXCore100.Plugin.Shelly), a
 complete, shipping output plugin in one small file:
 
 - registering output protocols with their own output type in the device UI
